@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>卡诺图 LaTeX 生成器</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            max-width: 900px;
+            margin: 40px auto;
+            padding: 20px;
+            background: #f9f9f9;
+            border-radius: 12px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        label {
+            display: block;
+            margin-top: 15px;
+            font-weight: bold;
+            color: #333;
+        }
+        input[type="text"], input[type="number"], select {
+            width: calc(100% - 18px); /* 调整宽度以适应内边距和边框 */
+            padding: 10px;
+            margin-top: 5px;
+            border-radius: 6px;
+            border: 1px solid #ddd;
+            box-sizing: border-box; /* 将内边距和边框包含在元素的总宽度和高度中 */
+        }
+        .button-group {
+            margin-top: 20px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        button {
+            padding: 10px 20px;
+            background-color: #0066cc;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:active {
+            background-color: #004499;
+        }
+        textarea {
+            width: calc(100% - 20px); /* 调整宽度以适应内边距 */
+            height: 200px;
+            margin-top: 20px;
+            padding: 10px;
+            font-family: monospace;
+            border-radius: 6px;
+            border: 1px solid #ddd;
+            resize: vertical;
+        }
+        .kmap-grid-container {
+            border: 1px solid #ccc;
+            padding: 10px;
+            border-radius: 8px;
+            background-color: #fff;
+            margin-top: 10px;
+            overflow-x: auto; /* 允许横向滚动以适应更大的图 */
+        }
+        .kmap-grid {
+            display: grid;
+            gap: 4px;
+            justify-content: center; /* 使网格居中 */
+        }
+        .kmap-cell {
+            width: 60px; /* 单元格稍大，便于阅读 */
+            height: 60px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid #ccc;
+            background-color: #f0f0f0;
+            cursor: pointer;
+            user-select: none;
+            border-radius: 4px;
+            transition: background-color 0.1s ease, border-color 0.1s ease;
+            font-size: 0.9em;
+            position: relative;
+        }
+        .kmap-cell.unselectable { /* 新增样式：不可选中的单元格 */
+            cursor: not-allowed;
+            opacity: 0.7;
+            background-color: #e0e0e0;
+        }
+        .kmap-cell span.index {
+            font-size: 0.7em;
+            color: #666;
+            position: absolute;
+            top: 2px;
+            right: 4px;
+        }
+        .kmap-cell.selected {
+            background-color: #c8e6c9; /* 浅绿色 */
+            border-color: #4caf50; /* 深绿色 */
+        }
+        .kmap-cell.minterm {
+            background-color: #e0f2f7; /* 最小项的浅蓝色 */
+        }
+        .kmap-cell.dontcare {
+            background-color: #fff9c4; /* 无关项的浅黄色 */
+        }
+        .kmap-cell.selected.minterm {
+             background-color: #a5d6a7; /* 选中最小项的深绿色 */
+        }
+        .kmap-cell.selected.dontcare {
+            background-color: #ffeb3b; /* 选中无关项的深黄色 */
+        }
+        .kmap-header-row, .kmap-header-col {
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .kmap-header-col {
+            padding-bottom: 5px;
+        }
+        .kmap-header-row {
+            padding-right: 5px;
+        }
+    </style>
+</head>
+<body>
+    <h1>卡诺图 LaTeX 生成器</h1>
+
+    <label for="numVars">变量数量 (2-4)</label>
+    <input type="number" id="numVars" min="2" max="4" value="4">
+
+    <label for="varNames">变量名 (逗号分隔, 例如: A,B,C,D)</label>
+    <input type="text" id="varNames" value="A,B,C,D">
+
+    <label for="minterms">最小项 (逗号分隔, 例如: 0,2,5,7,8,10,13)</label>
+    <input type="text" id="minterms" value="0,2,5,7,8,10,13">
+
+    <label for="dontcares">无关项 (逗号分隔, 例如: 1)</label>
+    <input type="text" id="dontcares" value="1">
+
+    <label for="dcSymbol">无关项符号 (例如: X, d)</label>
+    <input type="text" id="dcSymbol" value="X">
+
+    <label style="display:none;"> <input type="checkbox" id="fillZero" checked> 自动填充其余单元格为 0
+    </label>
+
+    <div class="button-group">
+        <button onclick="renderKMap()">更新卡诺图</button>
+        <button onclick="clearSelected()">清除选中单元格</button>
+    </div>
+
+    <label>卡诺图 - 点击选择单元格以形成蕴含项 (仅限 '1' 和 'X')</label>
+    <div class="kmap-grid-container">
+        <div id="kmap" class="kmap-grid"></div>
+    </div>
+
+    <div class="button-group">
+        <button onclick="addImplicant()">添加蕴含项</button>
+        <button onclick="clearImplicants()">清除所有蕴含项</button>
+    </div>
+
+    <label for="implicants">蕴含项 (每行一个, 自动生成)</label>
+    <textarea id="implicants" readonly></textarea>
+
+    <div class="button-group">
+        <button onclick="generateLaTeX()">生成 LaTeX 代码</button>
+    </div>
+    <label for="output">生成的 LaTeX 代码</label>
+    <textarea id="output" readonly></textarea>
+
+    <script>
+        // 存储选中的单元格索引
+        const selectedCellIndices = new Set();
+        // 全局变量，存储卡诺图的行数和列数，以便在其他函数中使用
+        let kmapRows = 0;
+        let kmapCols = 0;
+
+        // 灰度码转换函数
+        function gray(n) {
+            return n ^ (n >> 1);
+        }
+
+        /**
+         * 根据当前设置渲染卡诺图网格。
+         */
+        function renderKMap() {
+            const container = document.getElementById('kmap');
+            const numVars = parseInt(document.getElementById('numVars').value);
+            const minterms = parseNumbers(document.getElementById('minterms').value);
+            const dontcares = parseNumbers(document.getElementById('dontcares').value);
+            const dcSymbol = document.getElementById('dcSymbol').value || 'X';
+
+            // 确定网格尺寸
+            if (numVars === 2) { kmapRows = 2; kmapCols = 2; }
+            else if (numVars === 3) { kmapRows = 2; kmapCols = 4; } // 3变量标准卡诺图通常为2行4列
+            else if (numVars === 4) { kmapRows = 4; kmapCols = 4; }
+            else {
+                alert('变量数量必须在 2 到 4 之间。');
+                return;
+            }
+
+            container.innerHTML = '';
+            selectedCellIndices.clear(); // 重新渲染时清除所有选中单元格
+
+            // 为 CSS 设置网格列样式
+            container.style.gridTemplateColumns = `auto repeat(${kmapCols}, 60px)`;
+
+            // 添加列标题 (列变量的灰度码)
+            const varNames = document.getElementById('varNames').value.split(',').map(s => s.trim());
+            let colVarNamesCount;
+            if (numVars === 4 || numVars === 3) colVarNamesCount = 2; // 4变量和3变量时，列使用2个变量（2位灰码）
+            else if (numVars === 2) colVarNamesCount = 1; // 2变量时，列使用1个变量（1位灰码）
+
+            // 左上角空单元格
+            container.appendChild(document.createElement('div'));
+            // 列标题
+            for (let c = 0; c < kmapCols; c++) {
+                const header = document.createElement('div');
+                header.className = 'kmap-header-col';
+                const binary = gray(c).toString(2).padStart(colVarNamesCount, '0');
+                header.textContent = binary;
+                container.appendChild(header);
+            }
+
+            // 添加单元格
+            for (let r = 0; r < kmapRows; r++) {
+                // 行标题 (行变量的灰度码)
+                const rowHeader = document.createElement('div');
+                rowHeader.className = 'kmap-header-row';
+                let rowVarNamesCount;
+                if (numVars === 4) rowVarNamesCount = 2; // 4变量时，行使用2个变量（2位灰码）
+                else if (numVars === 3 || numVars === 2) rowVarNamesCount = 1; // 3变量和2变量时，行使用1个变量（1位灰码）
+                const binary = gray(r).toString(2).padStart(rowVarNamesCount, '0');
+                rowHeader.textContent = binary;
+                container.appendChild(rowHeader);
+
+                for (let c = 0; c < kmapCols; c++) {
+                    const gr = gray(r); // 行的灰度码
+                    const gc = gray(c); // 列的灰度码
+
+                    let index;
+                    // 根据变量数量计算最小项索引
+                    if (numVars === 4) {
+                        // A B C D (A,B 为行变量, C,D 为列变量)
+                        // 索引 = (AB的灰度码 << 2) + (CD的灰度码)
+                        index = (gr << 2) + gc;
+                    } else if (numVars === 3) {
+                        // A B C (A 为行变量, B,C 为列变量)
+                        // 索引 = (A的灰度码 << 2) + (BC的灰度码)
+                        index = (gr << 2) + gc;
+                    } else if (numVars === 2) {
+                        // A B (A 为行变量, B 为列变量)
+                        // 索引 = (A的灰度码 << 1) + (B的灰度码)
+                        index = (gr << 1) + gc;
+                    }
+
+                    const cell = document.createElement('div');
+                    cell.className = 'kmap-cell';
+                    cell.dataset.index = index;
+                    cell.dataset.row = r; // 存储原始行索引，用于模式匹配
+                    cell.dataset.col = c; // 存储原始列索引，用于模式匹配
+
+                    let cellValue = '';
+                    let isSelectable = false; // 标记单元格是否可被选中
+
+                    if (minterms.includes(index)) {
+                        cellValue = '1';
+                        cell.classList.add('minterm');
+                        isSelectable = true;
+                    } else if (dontcares.includes(index)) {
+                        cellValue = dcSymbol;
+                        cell.classList.add('dontcare');
+                        isSelectable = true;
+                    } else {
+                        // 默认未标记的单元格显示为 0
+                        cellValue = '0';
+                        cell.classList.add('unselectable'); // 标记为不可选
+                        isSelectable = false;
+                    }
+
+                    cell.innerHTML = `<span>${cellValue}</span><span class="index">${index}</span>`;
+
+                    if (isSelectable) {
+                        cell.onclick = () => {
+                            if (selectedCellIndices.has(index)) {
+                                selectedCellIndices.delete(index);
+                                cell.classList.remove('selected');
+                            } else {
+                                selectedCellIndices.add(index);
+                                cell.classList.add('selected');
+                            }
+                        };
+                    }
+                    // 如果不可选，则不设置 onclick 事件，或设置一个空函数
+                    else {
+                        cell.onclick = () => { /* 点击 0 单元格无反应 */ };
+                    }
+
+                    container.appendChild(cell);
+                }
+            }
+            updateSelectedCellsDisplay(); // 重新应用选中状态
+        }
+
+        /**
+         * 将逗号分隔的数字字符串解析为唯一的整数数组。
+         * @param {string} inputString
+         * @returns {number[]}
+         */
+        function parseNumbers(inputString) {
+            return Array.from(new Set(
+                inputString.split(',')
+                    .map(s => parseInt(s.trim()))
+                    .filter(n => !isNaN(n) && n >= 0) // 确保是有效的非负数字
+            )).sort((a, b) => a - b);
+        }
+
+        /**
+         * 根据 `selectedCellIndices` 更新单元格的视觉选中状态。
+         */
+        function updateSelectedCellsDisplay() {
+            document.querySelectorAll('.kmap-cell').forEach(cell => {
+                const index = parseInt(cell.dataset.index);
+                if (selectedCellIndices.has(index)) {
+                    cell.classList.add('selected');
+                } else {
+                    cell.classList.remove('selected');
+                }
+            });
+        }
+
+        /**
+         * 帮助函数，检查一组索引是否构成一个有效的矩形块，并返回其最小/最大行/列。
+         * 注意：此函数不考虑灰度码的逻辑邻接性，只检查物理网格上的矩形。
+         */
+        function getRectangularBounds(indices) {
+            if (indices.length === 0) return null;
+
+            const cells = Array.from(document.querySelectorAll('.kmap-cell'))
+                               .filter(cell => indices.includes(parseInt(cell.dataset.index)));
+
+            if (cells.length !== indices.length) return null; // 如果有索引不在当前地图中，则返回空
+
+            let minR = Infinity, maxR = -Infinity;
+            let minC = Infinity, maxC = -Infinity;
+            const positions = new Set(); // 存储 "r,c" 字符串以检查连续性
+
+            for (const cell of cells) {
+                const r = parseInt(cell.dataset.row);
+                const c = parseInt(cell.dataset.col);
+                minR = Math.min(minR, r);
+                maxR = Math.max(maxR, r);
+                minC = Math.min(minC, c);
+                maxC = Math.max(maxC, c);
+                positions.add(`${r},${c}`);
+            }
+
+            // 检查计算出的矩形内的所有单元格是否都在选择中
+            for (let r = minR; r <= maxR; r++) {
+                for (let c = minC; c <= maxC; c++) {
+                    if (!positions.has(`${r},${c}`)) {
+                        return null; // 不是一个完整的矩形
+                    }
+                }
+            }
+            // 修正：height 的计算应该使用 maxR 和 minR
+            return { minR, maxR, minC, maxC, width: maxC - minC + 1, height: maxR - minR + 1 };
+        }
+
+
+        /**
+         * 确定选中蕴含项对应的 LaTeX 宏。
+         * 优先检查特殊情况（单点、四角、边缘），最后是普通矩形。
+         * 如果所选单元格不构成任何有效且可绘制的蕴含项模式，则返回 null。
+         */
+        function getImplicantMacro(indices, numVars, kmapRows, kmapCols) {
+            if (indices.length === 0) return null;
+
+            // 对索引进行排序，以便于一致性处理
+            indices.sort((a, b) => a - b);
+
+            // 1. 处理单个单元格的情况：\implicant{X}{X}
+            if (indices.length === 1) {
+                return `\\implicant{${indices[0]}}{${indices[0]}}`;
+            }
+
+            // 2. 处理四角蕴含项 (仅适用于 4 变量卡诺图)
+            if (numVars === 4 && indices.length === 4) {
+                const cornerIndices = new Set([0, 2, 8, 10]);
+                const isFourCorners = indices.every(idx => cornerIndices.has(idx)) && indices.length === cornerIndices.size;
+                if (isFourCorners) {
+                    return `\\implicantcorner[0]`; // 修改点2: 添加 [0]
+                }
+            }
+
+            // 3. 处理边缘蕴含项 (适用于 4 变量卡诺图，各种大小的环绕组)
+            if (numVars === 4) {
+                const indicesSet = new Set(indices);
+
+                // 垂直边缘环绕组 (跨越列 0 和列 3) - 1x2, 2x2, 4x2 变体
+                const possibleVerticalEdgeGroups = [
+                    // 1x2 vertical wrap
+                    { selected: [0, 8], latex: `\\implicantedge{0}{8}` }, // 修改点1: 简化
+                    { selected: [4, 12], latex: `\\implicantedge{4}{12}` }, // 修改点1: 简化
+                    { selected: [2, 10], latex: `\\implicantedge{2}{10}` }, // 修改点1: 简化
+                    { selected: [6, 14], latex: `\\implicantedge{6}{14}` }, // 修改点1: 简化
+                    // 2x2 vertical wrap (existing)
+                    { selected: [0, 2, 8, 10], latex: `\\implicantedge{0}{8}{2}{10}` },
+                    { selected: [4, 6, 12, 14], latex: `\\implicantedge{4}{12}{6}{14}` },
+                    // 4x1 vertical wrap (corrected, it's 4 cells in one column, wrapping from top-row to bottom-row cell)
+                    { selected: [0, 4, 8, 12], latex: `\\implicantedge{0}{12}` }, // 4x1 垂直列，0-12
+                    { selected: [1, 5, 9, 13], latex: `\\implicantedge{1}{13}` }, // 4x1 垂直列，1-13
+                    { selected: [2, 6, 10, 14], latex: `\\implicantedge{2}{14}` }, // 4x1 垂直列，2-14
+                    { selected: [3, 7, 11, 15], latex: `\\implicantedge{3}{15}` }  // 4x1 垂直列，3-15
+                ];
+
+                for (const group of possibleVerticalEdgeGroups) {
+                    if (group.selected.length === indices.length && group.selected.every(idx => indicesSet.has(idx))) {
+                        return group.latex;
+                    }
+                }
+
+                // 水平边缘环绕组 (跨越行 0 和行 3) - 2x1, 2x2, 2x4 变体
+                const possibleHorizontalEdgeGroups = [
+                    // 1x2 horizontal block (not a wrap, but a common 2-cell group)
+                    { selected: [0, 1], latex: `\\implicantedge{0}{1}` }, // 修改点1: 简化
+                    { selected: [4, 5], latex: `\\implicantedge{4}{5}` }, // 修改点1: 简化
+                    { selected: [8, 9], latex: `\\implicantedge{8}{9}` }, // 修改点1: 简化
+                    { selected: [12, 13], latex: `\\implicantedge{12}{13}` },// 修改点1: 简化
+                    { selected: [2, 3], latex: `\\implicantedge{2}{3}` }, // 修改点1: 简化
+                    { selected: [6, 7], latex: `\\implicantedge{6}{7}` }, // 修改点1: 简化
+                    { selected: [10, 11], latex: `\\implicantedge{10}{11}` },// 修改点1: 简化
+                    { selected: [14, 15], latex: `\\implicantedge{14}{15}` },// 修改点1: 简化
+                    // 2x1 horizontal block (not a wrap, but a common 2-cell group)
+                    { selected: [0, 4], latex: `\\implicantedge{0}{4}` }, // 修改点1: 简化
+                    { selected: [1, 5], latex: `\\implicantedge{1}{5}` }, // 修改点1: 简化
+                    { selected: [2, 6], latex: `\\implicantedge{2}{6}` }, // 修改点1: 简化
+                    { selected: [3, 7], latex: `\\implicantedge{3}{7}` }, // 修改点1: 简化
+                    { selected: [8, 12], latex: `\\implicantedge{8}{12}` }, // 修改点1: 简化
+                    { selected: [9, 13], latex: `\\implicantedge{9}{13}` }, // 修改点1: 简化
+                    { selected: [10, 14], latex: `\\implicantedge{10}{14}` },// 修改点1: 简化
+                    { selected: [11, 15], latex: `\\implicantedge{11}{15}` },// 修改点1: 简化
+                    // 2x2 horizontal wrap (existing from previous code)
+                    { selected: [0, 1, 8, 9], latex: `\\implicantedge{0}{8}{1}{9}` },
+                    { selected: [4, 5, 12, 13], latex: `\\implicantedge{4}{12}{5}{13}` },
+                    { selected: [2, 3, 10, 11], latex: `\\implicantedge{2}{10}{3}{11}` },
+                    { selected: [6, 7, 14, 15], latex: `\\implicantedge{6}{14}{7}{15}` },
+                    // 1x4 horizontal wrap (covering a full row, wrapping from left-most to right-most cell)
+                    { selected: [0, 1, 2, 3], latex: `\\implicantedge{0}{3}` }, // 1x4 水平行，0-3
+                    { selected: [4, 5, 6, 7], latex: `\\implicantedge{4}{7}` }, // 1x4 水平行，4-7
+                    { selected: [8, 9, 10, 11], latex: `\\implicantedge{8}{11}` }, // 1x4 水平行，8-11
+                    { selected: [12, 13, 14, 15], latex: `\\implicantedge{12}{15}` } // 1x4 水平行，12-15
+                ];
+
+                for (const group of possibleHorizontalEdgeGroups) {
+                    if (group.selected.length === indices.length && group.selected.every(idx => indicesSet.has(idx))) {
+                        return group.latex;
+                    }
+                }
+            }
+
+
+            // 4. 处理普通矩形蕴含项 (不包含环绕)
+            const bounds = getRectangularBounds(indices);
+            if (bounds && indices.length > 1) { // 确保是框选了多个单元格
+                const start = indices[0];
+                const end = indices[indices.length - 1];
+                
+                const width = bounds.maxC - bounds.minC + 1;
+                const height = bounds.maxR - bounds.minR + 1;
+
+                // 检查宽度和高度是否都是2的幂 (1, 2, 4, 8, 16...)
+                if ((width & (width - 1)) === 0 && (height & (height - 1)) === 0) {
+                     return `\\implicant{${start}}{${end}}`;
+                }
+            }
+
+            // 如果以上所有模式都不匹配，则返回 null，表示无法识别为有效蕴含项
+            return null;
+        }
+
+        /**
+         * 将当前选中的单元格作为蕴含项添加到文本区域。
+         * 添加后清除选中状态。
+         */
+        function addImplicant() {
+            const indices = Array.from(selectedCellIndices).sort((a, b) => a - b);
+            if (indices.length === 0) {
+                alert("请至少选择一个单元格以形成蕴含项。");
+                return;
+            }
+
+            const numVars = parseInt(document.getElementById('numVars').value);
+            const line = getImplicantMacro(indices, numVars, kmapRows, kmapCols);
+
+            if (line) {
+                const ta = document.getElementById('implicants');
+                ta.value += (ta.value ? "\n" : "") + line;
+                selectedCellIndices.clear();
+                updateSelectedCellsDisplay(); // 清除视觉选中状态
+            } else {
+                // 如果无法自动识别，提示用户手动添加
+                const userConfirmed = confirm(
+                    `选中的单元格 ${indices.join(',')} 无法自动识别为标准的卡诺图蕴含项模式。\n` +
+                    `这可能是因为它们不构成一个有效的2的幂的矩形或环绕组，或者超出了本工具的自动识别范围。\n\n` +
+                    `您希望将其作为通用蕴含项 (\`\\implicant{${indices[0]}}{${indices[indices.length - 1]}}\`) 添加到输出吗？\n` +
+                    `（注意：对于不规则的形状或不符合\\implicant{start}{end}物理布局的组，` + `\`\\implicant{起始}{结束}\`` + ` 可能无法在LaTeX中正确绘制。）`
+                );
+                if (userConfirmed) {
+                     // 尽管不规则，但用户仍希望添加，我们使用最通用的implicant{start}{end}
+                     // 注意：这可能导致绘制不正确，但符合用户“添加”的意图
+                     const start = indices[0];
+                     const end = indices[indices.length - 1];
+                     const ta = document.getElementById('implicants');
+                     ta.value += (ta.value ? "\n" : "") + `\\implicant{${start}}{${end}}`;
+                     selectedCellIndices.clear();
+                     updateSelectedCellsDisplay();
+                } else {
+                    // 用户选择放弃，清除选中但不添加
+                    selectedCellIndices.clear();
+                    updateSelectedCellsDisplay();
+                }
+            }
+        }
+
+        /**
+         * 清除所有当前选中的单元格的视觉状态和Set中的数据。
+         */
+        function clearSelected() {
+            selectedCellIndices.clear();
+            updateSelectedCellsDisplay();
+        }
+
+        /**
+         * 清除蕴含项文本区域中的所有文本。
+         */
+        function clearImplicants() {
+            document.getElementById('implicants').value = '';
+        }
+
+        /**
+         * 生成最终的 LaTeX 代码。
+         */
+        function generateLaTeX() {
+            const numVars = parseInt(document.getElementById('numVars').value);
+            const varNames = document.getElementById('varNames').value.split(',').map(s => s.trim());
+            const minterms = parseNumbers(document.getElementById('minterms').value);
+            const dontcares = parseNumbers(document.getElementById('dontcares').value);
+            const dcSymbol = document.getElementById('dcSymbol').value || '-';
+
+
+            // 核心修复: 在这里获取 implicants 文本区域的内容
+            // 过滤掉空行，确保只处理有效的蕴含项定义
+            const implicants = document.getElementById('implicants').value.trim().split(/\n+/).filter(line => line.trim() !== '');
+
+            // 变量名数量校验
+            if (varNames.length !== numVars) {
+                alert(`请提供精确的 ${numVars} 个变量名。`);
+                return;
+            }
+
+            let rowVarCount, colVarCount;
+            if (numVars === 4) {
+                rowVarCount = 2; colVarCount = 2;
+            } else if (numVars === 3) {
+                rowVarCount = 1; colVarCount = 2;
+            } else if (numVars === 2) {
+                rowVarCount = 1; colVarCount = 1;
+            }
+
+            // 生成 LaTeX 中的变量标签
+            const rowVarsLatex = varNames.slice(0, rowVarCount).map(v => `[$${v}$]`).join('');
+            const colVarsLatex = varNames.slice(rowVarCount, numVars).map(v => `[$${v}$]`).join('');
+
+            // 构建 LaTeX 代码的起始部分，只包含 karnaugh-map 环境
+            let latex = `\\begin{karnaugh-map}[${kmapRows}][${kmapCols}][1]${colVarsLatex}${rowVarsLatex}\n`;
+            
+            // 添加最小项
+            if (minterms.length > 0) {
+                latex += `    \\minterms{${minterms.join(',')}}\n`;
+            }
+            // 添加无关项
+            if (dontcares.length > 0) {
+                latex += `    \\terms{${dontcares.join(',')}}{\$${dcSymbol}$}\n`;
+            }
+
+            // 添加所有蕴含项
+            implicants.forEach(line => {
+                latex += `    ${line}\n`;
+            });
+
+            // Karnaugh Map 环境的结束
+            latex += `\\end{karnaugh-map}`;
+
+            document.getElementById('output').value = latex;
+        }
+
+        // 为输入变化添加事件监听器，实时更新卡诺图
+        document.getElementById('numVars').addEventListener('change', renderKMap);
+        document.getElementById('varNames').addEventListener('input', renderKMap);
+        document.getElementById('minterms').addEventListener('input', renderKMap);
+        document.getElementById('dontcares').addEventListener('input', renderKMap);
+        document.getElementById('dcSymbol').addEventListener('input', renderKMap);
+
+        // 页面加载时初始渲染卡诺图
+        window.onload = renderKMap;
+    </script>
+</body>
+</html>
